@@ -41,12 +41,12 @@ tools/
 make serve
 ```
 
-This starts a local HTTP server at `http://127.0.0.1:8000` serving the contents of `vendor_site/`.
+This starts a local HTTP server at `http://127.0.0.1:8080` serving the contents of `vendor_site/`.
 
 Open the vendor guide in a browser:
 
 ```
-http://127.0.0.1:8000/vendorx_install.html
+http://127.0.0.1:8080/vendorx_install.html
 ```
 
 ### 2. Review the vendor guide and update the runbook
@@ -71,7 +71,7 @@ make reset
 
 | Target | Description |
 |--------|-------------|
-| `make serve` | Serve `vendor_site/` on port 8000 |
+| `make serve` | Serve `vendor_site/` on port 8080 |
 | `make lint` | Lint internal markdown files |
 | `make test` | Check runbook for required sections |
 | `make reset` | Remove generated artifacts |

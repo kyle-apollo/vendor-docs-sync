@@ -5,13 +5,13 @@ serve_vendor_site.py — serves the vendor_site/ directory over HTTP.
 Usage:
     python3 tools/serve_vendor_site.py [PORT]
 
-Default port: 8000
+Default port: 8080
 """
 import http.server
 import os
 import sys
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 
 # Resolve the vendor_site directory relative to the repo root.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

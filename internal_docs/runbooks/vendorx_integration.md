@@ -2,34 +2,10 @@
 
 **Service:** VendorX Data Pipeline Connector
 **Team:** Platform Engineering
-**Last updated:** 2025-10-14
+**Last updated:** 2026-03-03
 **Review cycle:** Quarterly or after any VendorX major release
-**Source:** [VendorX Setup Guide](http://127.0.0.1:8000/vendorx_install.html) — accessed 2025-10-14
+**Source:** [VendorX Setup Guide](https://kyle-apollo.github.io/vendor-docs-sync/vendor_site/vendorx_install.html) — accessed 2026-03-03
 
----
-
-## Troubleshooting
-
-### Connection refused / timeout
-
-- Confirm network access: `curl -v https://ingest.vendorx.example.com/health`
-- Check that `VENDORX_ENDPOINT` is set correctly.
-- Verify firewall rules permit outbound HTTPS from the host.
-
-### Authentication errors (401 / 403)
-
-- Confirm `VENDORX_API_KEY` is set and not expired.
-- Check the key has the `ingest:write` permission in the VendorX portal.
-
-### Collecting diagnostic information
-
-When opening a support ticket with VendorX, use the `diagnostics.sh` script to collect safe, non-sensitive system information:
-
-```bash
-bash sample_project/scripts/diagnostics.sh > /tmp/vendorx_diag.txt
-```
-
-Review `/tmp/vendorx_diag.txt` before sharing. Remove or redact any secrets, internal hostnames, or PII. 
 
 ---
 
@@ -42,10 +18,12 @@ VendorX is a third-party data pipeline service that ingests structured event str
 
 ## Prerequisites
 
-- Python 3.9 or later
+- Operating system: Linux (glibc ≥ 2.17) or macOS 12+
+- Python 3.9 or later (for SDK-based integrations)
 - Network access to `ingest.vendorx.example.com` (port 443)
-- A VendorX API key provisioned via the vendor portal (see [Credential management](#credential-management))
+- A VendorX API key with `ingest:write` permission, provisioned via the vendor portal (see [Credential management](#credential-management))
 - The application configuration file at `sample_project/app_config.yaml`
+- At least 200 MB of available disk space for the agent binary and local buffer
 
 ---
 
@@ -57,21 +35,37 @@ VendorX is a third-party data pipeline service that ingests structured event str
 
 ## Installation
 
-### 1. Install the VendorX agent
+### 1. Download the agent binary
 
-Download the agent package from the VendorX portal and place the binary in `/usr/local/bin/vendorx-agent`. Verify the SHA-256 checksum against the value published in the vendor release notes before executing.
+All releases are listed at `https://packages.vendorx.example.com/releases`. Replace `VERSION` with the target release (e.g., `2.4.1`) and `PLATFORM` with `linux-amd64`, `linux-arm64`, or `darwin-arm64`.
 
 ```bash
-# Example — replace <VERSION> and <CHECKSUM> with values from the vendor release page
-curl -fsSL https://packages.vendorx.example.com/agent/<VERSION>/vendorx-agent-linux-amd64 \
+curl -fsSL "https://packages.vendorx.example.com/agent/VERSION/vendorx-agent-PLATFORM" \
   -o /tmp/vendorx-agent
-
-echo "<CHECKSUM>  /tmp/vendorx-agent" | sha256sum -c -
-chmod +x /tmp/vendorx-agent
-sudo mv /tmp/vendorx-agent /usr/local/bin/vendorx-agent
 ```
 
-### 2. Install the Python SDK
+### 2. Verify the checksum
+
+The expected SHA-256 checksum is published on the release page alongside each binary. Do not skip this step.
+
+```bash
+# Replace EXPECTED_CHECKSUM with the value from the release page
+echo "EXPECTED_CHECKSUM  /tmp/vendorx-agent" | sha256sum -c -
+```
+
+> **Warning:** If the checksum does not match, delete the downloaded file immediately and contact VendorX support. Do not execute a binary that fails checksum verification.
+
+### 3. Install the binary
+
+```bash
+chmod +x /tmp/vendorx-agent
+sudo mv /tmp/vendorx-agent /usr/local/bin/vendorx-agent
+vendorx-agent --version
+```
+
+### 4. Install the Python SDK (optional)
+
+If your application uses the Python SDK rather than the standalone agent:
 
 ```bash
 pip install vendorx-sdk==2.4.1
@@ -89,14 +83,40 @@ pip show vendorx-sdk | grep Version
 
 ### Application config
 
-The connector reads its runtime configuration from `sample_project/app_config.yaml`. Key fields:
+The connector reads its runtime configuration from `sample_project/app_config.yaml`. A minimal example:
+
+```yaml
+vendorx:
+  endpoint: https://ingest.vendorx.example.com/v2/events
+  api_key: ${VENDORX_API_KEY}          # loaded from environment
+  batch_size: 100
+  flush_interval_seconds: 5
+  retry:
+    max_attempts: 3
+    backoff_seconds: 2
+  tls:
+    verify: true
+  buffer:
+    enabled: true
+    path: /var/lib/vendorx/buffer
+    max_size_mb: 50
+```
+
+> **Warning:** Never hard-code the API key in the config file. Use the `${VENDORX_API_KEY}` environment variable substitution shown above, or a secrets manager integration. Config files are often inadvertently committed to version control.
+
+Key fields:
 
 | Field | Description |
 |---|---|
 | `vendorx.endpoint` | Ingest endpoint URL |
 | `vendorx.batch_size` | Number of events per batch |
 | `vendorx.flush_interval_seconds` | Maximum time between flushes |
+| `vendorx.retry.max_attempts` | Number of retry attempts on failure |
+| `vendorx.retry.backoff_seconds` | Seconds to wait between retries |
 | `vendorx.tls.verify` | Whether to verify the server TLS certificate |
+| `vendorx.buffer.enabled` | Enable local buffering for high-throughput workloads |
+| `vendorx.buffer.path` | Path for the local buffer directory |
+| `vendorx.buffer.max_size_mb` | Maximum local buffer size in MB |
 
 Do not set `tls.verify: false` in production environments.
 
@@ -109,14 +129,12 @@ cp sample_project/.env.example sample_project/.env
 # Edit .env — do not commit this file
 ```
 
-Required variables:
-
-| Variable | Description |
-|---|---|
-| `VENDORX_API_KEY` | API key from the VendorX portal |
-| `VENDORX_ENDPOINT` | Ingest endpoint (overrides config file if set) |
-| `APP_ENV` | `development`, `staging`, or `production` |
-| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARN`, or `ERROR` |
+| Variable | Required | Description |
+|---|---|---|
+| `VENDORX_API_KEY` | Yes | API key with `ingest:write` scope |
+| `VENDORX_ENDPOINT` | No | Ingest endpoint (overrides config file if set) |
+| `APP_ENV` | No | `development`, `staging`, or `production` |
+| `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARN`, or `ERROR` (default: `INFO`) |
 
 ---
 
@@ -128,22 +146,93 @@ Rotate keys quarterly or immediately if a key is suspected to have been exposed.
 
 ---
 
-## Verification
+## First run & smoke test
 
-After installation and configuration, verify the connector is operational:
+With the config file in place and environment variables exported, start the agent in foreground mode to confirm it connects successfully:
 
 ```bash
-# 1. Check the agent version
-vendorx-agent --version
-
-# 2. Send a test event (returns the server-assigned event ID on success)
-vendorx-agent verify --config sample_project/app_config.yaml
+vendorx-agent start --config sample_project/app_config.yaml --foreground
 ```
 
-If the verify command fails, consult the [Troubleshooting](#troubleshooting) section.
+Expected output on success:
+
+```
+[INFO]  VendorX agent v2.4.1 starting
+[INFO]  Config loaded from sample_project/app_config.yaml
+[INFO]  Connecting to https://ingest.vendorx.example.com/v2/events
+[INFO]  Connection established. Waiting for events.
+[INFO]  Smoke-test event sent (event_id=vx_0000000001)
+```
+
+Press Ctrl-C to stop the agent after confirming the smoke test passes.
 
 ---
 
+## Verification
+
+After installation and configuration, verify the connector is operational.
+
+### 1. Confirm agent version and connectivity
+
+```bash
+# Agent version
+vendorx-agent --version
+
+# Endpoint reachability
+curl -sv https://ingest.vendorx.example.com/health 2>&1 | tail -20
+```
+
+### 2. Run the diagnostics script
+
+The repository ships a helper script that collects system and connector information in a single step:
+
+```bash
+bash sample_project/scripts/diagnostics.sh
+```
+
+The script prints a structured report covering OS version, Python version, SDK installation status, config file presence, and network reachability. Remove any API key values before sharing the output.
+
+### 3. Check recent agent logs
+
+If the agent has been running as a service, retrieve the last 50 log lines:
+
+```bash
+# systemd
+journalctl -u vendorx-agent -n 50 --no-pager
+
+# macOS launchd
+tail -n 50 /var/log/vendorx-agent.log
+```
+
+If verification fails, consult the [Troubleshooting](#troubleshooting) section.
+
+---
+
+## Troubleshooting
+
+### Connection refused / TLS handshake failure
+
+- Verify outbound port 443 is open: `curl -v https://ingest.vendorx.example.com/health`
+- Check that `tls.verify` is not mistakenly set to `false` in a staging environment that uses a private CA.
+- Confirm system time is accurate (TLS certificates validate timestamps): `date -u`
+
+### 401 Unauthorized
+
+- Confirm `VENDORX_API_KEY` is set in the environment where the agent runs.
+- Verify the key has not expired — check the *API Keys* page in the VendorX portal.
+- Ensure the key has the `ingest:write` permission scope.
+
+### Events not appearing in the portal
+
+- Check the agent log for `[WARN] batch dropped` messages indicating buffer overflow.
+- Verify `APP_ENV` is set to the correct value — events tagged `development` are not shown in the production dashboard.
+- Confirm `flush_interval_seconds` has elapsed since the last event was sent; low-volume deployments may see delays.
+
+### High memory usage
+
+Reduce `batch_size` and `buffer.max_size_mb` in the config file. Restart the agent after changing these values.
+
+---
 
 ## Rollback
 
@@ -174,5 +263,5 @@ vendorx-agent --version
 
 ## Sources
 
-- VendorX Setup Guide — `http://127.0.0.1:8000/vendorx_install.html` (accessed 2025-10-14)
-- VendorX SDK changelog — `https://docs.vendorx.example.com/sdk/changelog` (accessed 2025-10-14)
+- VendorX Setup Guide — `https://kyle-apollo.github.io/vendor-docs-sync/vendor_site/vendorx_install.html` (accessed 2026-03-03)
+- VendorX SDK changelog — `https://docs.vendorx.example.com/sdk/changelog` (accessed 2026-03-03)
