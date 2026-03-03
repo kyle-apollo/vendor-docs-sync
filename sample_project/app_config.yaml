@@ -1,0 +1,41 @@
+# VendorX Data Pipeline Connector — application configuration
+# See: https://docs.vendorx.example.com/connector/config-reference
+
+vendorx:
+  # Ingest endpoint for this environment.
+  # Override with VENDORX_ENDPOINT environment variable if needed.
+  endpoint: https://ingest.vendorx.example.com/v2/events
+
+  # API key loaded from environment variable — never hard-code here.
+  api_key: ${VENDORX_API_KEY}
+
+  # Batching: send events in groups of up to batch_size, or when
+  # flush_interval_seconds elapses (whichever comes first).
+  batch_size: 100
+  flush_interval_seconds: 5
+
+  retry:
+    max_attempts: 3
+    backoff_seconds: 2
+
+  tls:
+    # Always true in staging and production.
+    # Set to false only for local development against a self-signed cert.
+    verify: true
+
+  buffer:
+    enabled: true
+    # Directory for the local event buffer (created automatically).
+    path: /var/lib/vendorx/buffer
+    max_size_mb: 50
+
+app:
+  name: sample-app
+  # Environment tag attached to every event.
+  # Valid values: development | staging | production
+  env: ${APP_ENV:-development}
+
+logging:
+  level: ${LOG_LEVEL:-INFO}
+  format: json
+  output: stdout
