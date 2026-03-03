@@ -215,7 +215,7 @@ uname -a
 
 echo "--- VENDORX ENV (SCOPED) ---"
 # Only include VendorX-related variables for troubleshooting
-env | sort | egrep '^(VENDORX_|APP_ENV|LOG_LEVEL)=' || true
+env | sort | egrep '^(VENDORX_|APP_ENV|LOG_LEVEL| VENDORX_API_KEY)=' || true
 
 echo "--- APP CONFIG ---"
 cat sample_project/app_config.yaml
